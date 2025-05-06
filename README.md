@@ -1,4 +1,4 @@
-# Hulygun
+# Hulygun 🔫
 Hulygun is a worker that routes Huly communication event requests from Apache Kafka topic(s) to Huly transactors.
 
 ## Operation
