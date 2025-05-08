@@ -1100,6 +1100,7 @@ dependencies = [
 [[package]]
 name = "hulyrs"
 version = "0.1.0"
+source = "git+https://github.com/hcengineering/hulyrs.git?tag=v0.1.0#13cbfa746a93f505e07cf636b472669ec7e62d3a"
 dependencies = [
  "actix-web",
  "bytes",
@@ -1108,7 +1109,6 @@ dependencies = [
  "derive_builder",
  "jsonwebtoken",
  "ksuid",
- "rdkafka",
  "reqwest",
  "secrecy",
  "serde",
