@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rdkafka = "0.37.0"
+rdkafka = { version = "0.37.0", features = ["cmake-build", "ssl-vendored"] }
 tokio = { version = "1.44.2", features = ["full"] }
-hulyrs = { version = "0.1.0", git = "https://github.com/hcengineering/hulyrs.git", tag = "v0.1.0" }
+hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", tag = "v0.2.0" }
 config = "0.15.11"
 serde = { version = "1.0.219", features = ["derive"] }
 anyhow = "1.0.98"
