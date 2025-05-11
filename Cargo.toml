@@ -10,7 +10,7 @@ rdkafka = { version = "0.37.0", features = [
     "tracing",
 ] }
 tokio = { version = "1.44.2", features = ["full"] }
-hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", branch = "dev" }
+hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", branch = "master" }
 config = "0.15.11"
 serde = { version = "1.0.219", features = ["derive"] }
 anyhow = "1.0.98"
