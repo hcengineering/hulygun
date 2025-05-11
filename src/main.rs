@@ -23,7 +23,7 @@ use moka::future::{Cache, CacheBuilder};
 use rdkafka::{
     Message,
     client::ClientContext,
-    config::{ClientConfig, RDKafkaLogLevel},
+    config::ClientConfig,
     consumer::{Consumer as _, ConsumerContext, stream_consumer::StreamConsumer},
     message::{BorrowedMessage, Headers},
 };
@@ -179,7 +179,15 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
         .build();
 
     loop {
-        let message = consumer.recv().await?;
+        let message = consumer.recv().await;
+
+        // error handling is done inside rdkafka, we can safely ignore all errors
+        if message.is_err() {
+            continue;
+        }
+
+        let message = message.unwrap();
+
         let topic = message.topic();
         let partition = message.partition();
         let offset = message.offset();
