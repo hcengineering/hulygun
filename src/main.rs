@@ -67,7 +67,10 @@ impl TransactorCache {
                 TransactorClient::new(info.endpoint, &claims).map(Arc::new)
             })
             .await
-            .map_err(|e| Arc::into_inner(e).expect("ConcurrentAccess"))
+            .map_err(|e| {
+                error!(%workspace, error=%e, "Failed to get transactor");
+                Error::Other("NoTransactor")
+            })
     }
 }
 
