@@ -115,20 +115,6 @@ impl ConsumerContext for Context {}
 
 type Consumer = StreamConsumer<Context>;
 
-pub fn initialize_tracing() {
-    use tracing_subscriber::{filter::targets::Targets, prelude::*};
-
-    let level = tracing::Level::TRACE;
-
-    let filter = Targets::default().with_target(env!("CARGO_PKG_NAME"), level);
-    let format = tracing_subscriber::fmt::layer().compact();
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(format)
-        .init();
-}
-
 trait MessageExt {
     fn header(&self, header: &str) -> Option<String>;
 }
@@ -225,6 +211,23 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
     }
 }
 
+pub fn initialize_tracing() {
+    use tracing::Level;
+    use tracing_subscriber::{filter::targets::Targets, prelude::*};
+
+    let filter = Targets::default()
+        .with_default(Level::WARN)
+        .with_target(env!("CARGO_PKG_NAME"), Level::TRACE)
+        .with_target("librdkafka", Level::DEBUG);
+
+    let format = tracing_subscriber::fmt::layer().compact();
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(format)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     initialize_tracing();
@@ -235,18 +238,28 @@ async fn main() -> Result<(), anyhow::Error> {
         env!("CARGO_PKG_VERSION")
     );
 
-    let consumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+
+    config
         .set("group.id", &CONFIG.group_id)
-        .set("bootstrap.servers", hulyrs::CONFIG.bootstrap_servers())
+        .set(
+            "bootstrap.servers",
+            hulyrs::CONFIG.kafka_bootstrap_servers(),
+        )
         .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
+        .set("session.timeout.ms", "10000")
+        .set("heartbeat.interval.ms", "2000")
         .set(
             "enable.auto.commit",
             if CONFIG.dry_run { "false" } else { "true" },
         )
-        .set("auto.offset.reset", "smallest")
-        .set_log_level(RDKafkaLogLevel::Debug)
-        .create_with_context(Context::new())?;
+        .set("auto.offset.reset", "smallest");
+
+    if let Some(debug) = hulyrs::CONFIG.kafka_rdkafka_debug.as_ref() {
+        config.set("debug", debug);
+    }
+
+    let consumer = config.create_with_context(Context::new())?;
 
     worker(consumer).await?;
 
