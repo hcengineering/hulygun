@@ -270,7 +270,7 @@ pub fn initialize_tracing() {
 
     let filter = Targets::default()
         .with_default(Level::WARN)
-        .with_target(env!("CARGO_PKG_NAME"), Level::TRACE)
+        .with_target(env!("CARGO_PKG_NAME"), hulyrs::CONFIG.log)
         .with_target("librdkafka", Level::DEBUG);
 
     let format = tracing_subscriber::fmt::layer().compact();
