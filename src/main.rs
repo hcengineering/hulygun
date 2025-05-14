@@ -10,7 +10,7 @@ use governor::{
 use hulyrs::{
     Error,
     services::{
-        account::AccountClient,
+        account::{AccountClient, SelectWorkspaceParams, WorkspaceKind},
         jwt::ClaimsBuilder,
         transactor::{
             TransactorClient,
@@ -62,15 +62,60 @@ impl TransactorCache {
                     .unwrap();
 
                 let account = AccountClient::new(&claims)?;
-                let info = account.get_workspace_login_info_by_token().await?;
 
-                TransactorClient::new(info.endpoint, &claims).map(Arc::new)
+                let workspace_info = account
+                    .select_workspace(&SelectWorkspaceParams {
+                        workspace_url: String::default(),
+                        kind: WorkspaceKind::ByRegion,
+                        external_regions: hulyrs::CONFIG.external_regions.clone(),
+                    })
+                    .await?;
+
+                trace!(%workspace, transactor = %workspace_info.endpoint, "get transactor for workspace");
+
+                TransactorClient::new(workspace_info.endpoint, &claims).map(Arc::new)
             })
             .await
             .map_err(|e| {
                 error!(%workspace, error=%e, "Failed to get transactor");
                 Error::Other("NoTransactor")
             })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use tracing::debug;
+
+    use hulyrs::services::{
+        account::{AccountClient, SelectWorkspaceParams, WorkspaceKind},
+        jwt::ClaimsBuilder,
+    };
+
+    use crate::config::CONFIG;
+
+    #[tokio::test]
+    async fn test_region() {
+        super::initialize_tracing();
+
+        let claims = ClaimsBuilder::default()
+            .system_account()
+            .workspace(uuid::uuid!("80dc97fb-1c3e-4e74-9490-d430f30da740"))
+            .service(&CONFIG.service_id)
+            .build()
+            .unwrap();
+
+        let account = AccountClient::new(&claims).unwrap();
+
+        let select = SelectWorkspaceParams {
+            workspace_url: String::default(),
+            kind: WorkspaceKind::ByRegion,
+            external_regions: Vec::default(),
+        };
+
+        let info = account.select_workspace(&select).await.unwrap();
+
+        debug!(?info, "workspace info")
     }
 }
 
