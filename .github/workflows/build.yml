@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout 
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Log to registry
@@ -16,9 +16,8 @@ jobs:
         with:
           username: ${{ vars.DOCKER_USER }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-          
+
       - run: echo VERSION=$(grep '^version =' Cargo.toml | cut -d '"' -f 2) >> $GITHUB_ENV
-      - run: echo Version= ${{env.VERSION}}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -28,8 +27,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: "${{ vars.DOCKER_USER }}/hulygun:${{ env.VERSION }}"
-          platforms: linux/amd64,linux/arm64 
-
-
-
+          tags: "${{ vars.DOCKER_USER }}/service_hulygun:${{ env.VERSION }},${{ vars.DOCKER_USER }}/service_hulygun:latest"
+          platforms: linux/amd64,linux/arm64
