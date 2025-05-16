@@ -40,7 +40,7 @@ use rdkafka::{
     Message,
     client::ClientContext,
     config::ClientConfig,
-    consumer::{Consumer as _, ConsumerContext, stream_consumer::StreamConsumer},
+    consumer::{CommitMode, Consumer as _, ConsumerContext, stream_consumer::StreamConsumer},
     message::{BorrowedMessage, Headers},
 };
 use serde_json as json;
@@ -283,6 +283,12 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
 
             break;
         }
+
+        if !CONFIG.dry_run {
+            if let Err(e) = consumer.commit_message(&message, CommitMode::Async) {
+                error!(%topic, partition, offset, error=%e, "Failed to commit message");
+            }
+        }
     }
 }
 
@@ -324,11 +330,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "10000")
         .set("heartbeat.interval.ms", "2000")
-        .set(
-            "enable.auto.commit",
-            if CONFIG.dry_run { "false" } else { "true" },
-        )
-        .set("auto.offset.reset", "smallest");
+        .set("auto.offset.reset", "smallest")
+        .set("enable.auto.commit", "false");
 
     if let Some(debug) = hulyrs::CONFIG.kafka_rdkafka_debug.as_ref() {
         config.set("debug", debug);
