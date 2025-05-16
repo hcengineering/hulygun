@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use backoff::{SystemClock, backoff::Backoff, exponential::ExponentialBackoffBuilder};
+use base64::Engine;
 use governor::{
     Quota, RateLimiter,
     clock::{Clock, MonotonicClock},
@@ -150,7 +151,7 @@ impl ErrorExt for Error {
     fn is_transient(&self) -> bool {
         match self {
             Error::HttpError(status, _) if status.is_server_error() => true,
-            Error::HttpError(StatusCode::TOO_MANY_REQUESTS, _) => true,
+            Error::HttpError(http::StatusCode::TOO_MANY_REQUESTS, _) => true,
             _ => false,
         }
     }
@@ -183,21 +184,25 @@ impl<T: rdkafka::Message> MessageExt for T {
 async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(), Error> {
     let context = consumer.context();
 
+    let envelope = if let Some(payload) = message.payload() {
+        match json::from_slice::<Envelope<json::Value>>(payload) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                let payload = base64::prelude::BASE64_STANDARD.encode(payload);
+                warn!(%error, payload, "Invalid payload");
+                return Err(Error::Other("InvalidPayload"));
+            }
+        }
+    } else {
+        return Err(Error::Other("NoPayload"));
+    };
+
     let workspace =
         if let Some(Ok(workspace)) = message.header("WorkspaceUuid").map(|s| Uuid::parse_str(&s)) {
             workspace
         } else {
             return Err(Error::Other("InvalidWorkspace"))?;
         };
-
-    let envelope = if let Some(Ok(payload)) = message
-        .payload()
-        .map(json::from_slice::<Envelope<json::Value>>)
-    {
-        payload
-    } else {
-        return Err(Error::Other("InvalidPayload"))?;
-    };
 
     let transactor = context.transactors.get_transactor(workspace).await?;
 
