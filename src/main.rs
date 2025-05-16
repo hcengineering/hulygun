@@ -87,7 +87,7 @@ impl TransactorCache {
                     })
                     .await?;
 
-                trace!(%workspace, transactor = %workspace_info.endpoint, "get transactor for workspace");
+                trace!(%workspace, transactor = %workspace_info.endpoint, "Get transactor for workspace");
 
                 TransactorClient::new(workspace_info.endpoint, &claims).map(Arc::new)
             })
@@ -165,6 +165,7 @@ trait ErrorExt {
 impl ErrorExt for Error {
     fn is_transient(&self) -> bool {
         match self {
+            Error::Other("NoTransactor") => true,
             Error::HttpError(status, _) if status.is_server_error() => true,
             Error::HttpError(http::StatusCode::TOO_MANY_REQUESTS, _) => true,
             _ => false,
@@ -266,7 +267,7 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
             if let Err(e) = process(&consumer, &message).await {
                 if e.is_transient() {
                     if let Some(delay) = backoff.next_backoff() {
-                        warn!(%topic, partition, offset, error=%e, "Transient error");
+                        warn!(%topic, partition, offset, ?delay, error=%e, "Transient error");
 
                         time::sleep(delay).await;
                         continue 'retry;
