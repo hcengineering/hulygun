@@ -38,10 +38,12 @@ use hulyrs::{
 use moka::future::{Cache, CacheBuilder};
 use rdkafka::{
     Message,
+    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     client::ClientContext,
-    config::ClientConfig,
+    config::{ClientConfig, FromClientConfig},
     consumer::{CommitMode, Consumer as _, ConsumerContext, stream_consumer::StreamConsumer},
     message::{BorrowedMessage, Headers},
+    types::RDKafkaErrorCode,
 };
 use serde_json as json;
 use tokio::time;
@@ -318,6 +320,40 @@ async fn main() -> Result<(), anyhow::Error> {
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION")
     );
+
+    {
+        let mut config = ClientConfig::new();
+        config.set(
+            "bootstrap.servers",
+            hulyrs::CONFIG.kafka_bootstrap_servers(),
+        );
+
+        let admin = AdminClient::from_config(&config)?;
+
+        let topics = CONFIG
+            .topics()
+            .iter()
+            .map(|topic| NewTopic {
+                name: topic,
+                num_partitions: 4,
+                replication: TopicReplication::Fixed(1),
+                config: vec![],
+            })
+            .collect::<Vec<_>>();
+
+        admin
+            .create_topics(&topics, &AdminOptions::default())
+            .await?
+            .iter()
+            .for_each(|result| match result {
+                Ok(topic) => info!(topic, "Topic created"),
+                Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
+                    trace!(topic, "Topic already exists");
+                }
+
+                Err((topic, error)) => error!(topic, ?error, "Failed to create topic"),
+            });
+    }
 
     let mut config = ClientConfig::new();
 

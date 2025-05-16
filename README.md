@@ -14,7 +14,7 @@ Hulygun employs a limiter to control the rate at which transactor requests are m
 The following environment variables are used to configure Hulygun:
 
 - ```HULY_GROUP_ID``` - Kafka consumer group id. Default: hulygun
-- ```HULY_TOPICS``` - Comma separated list of Kafka topics to consume from. Default: hulygun
+- ```HULY_TOPICS``` - Comma separated list of Kafka topics to consume from. Default: ["hulygun"]
 - ```HULY_KAFKA_BOOTSTRAP``` - Comma separated list of bootstrap Kafka brokers. Default: localhost:19092
 - ```HULY_SECRET``` - Huly secret used to sign requests to account service and transactors. Default: secret
 - ```HULY_ACCOUNTS_SERVICE``` - URL of the Huly accounts service. Default: http://localhost:8080/account

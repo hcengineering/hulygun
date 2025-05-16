@@ -36,7 +36,7 @@ impl Config {
 pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
     const DEFAULTS: &str = r#"
         group_id = "hulygun"
-        topics = ["commevent"]
+        topics = ["hulygun"]
         service_id = "hulygun"
         dry_run = false
         rate_limit = 10 # messages per second
