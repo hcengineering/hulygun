@@ -133,7 +133,7 @@ mod test {
 
         let info = account.select_workspace(&select).await.unwrap();
 
-        debug!(?info, "workspace info")
+        debug!(?info, "workspace info");
     }
 }
 
@@ -219,12 +219,13 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
         if let Some(Ok(workspace)) = message.header("WorkspaceUuid").map(|s| Uuid::parse_str(&s)) {
             workspace
         } else {
-            return Err(Error::Other("InvalidWorkspace"))?;
+            return Err(Error::Other("InvalidWorkspace"));
         };
 
     let transactor = context.transactors.get_transactor(workspace).await?;
 
     if let Err(delay) = context.limiter.check() {
+        trace!(?delay, "Rate limit exceeded, waiting");
         time::sleep_until(delay.earliest_possible().into()).await;
     }
 
