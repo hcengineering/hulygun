@@ -168,7 +168,6 @@ impl ErrorExt for Error {
     fn is_transient(&self) -> bool {
         match self {
             Error::Other("NoTransactor") => true,
-            Error::HttpError(status, _) if status.is_server_error() => true,
             Error::HttpError(http::StatusCode::TOO_MANY_REQUESTS, _) => true,
             _ => false,
         }
