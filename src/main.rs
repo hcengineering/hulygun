@@ -230,10 +230,12 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
     }
 
     if !CONFIG.dry_run {
-        transactor.request_raw(&envelope).await
-    } else {
-        Ok(())
+        transactor
+            .request_raw::<_, Option<json::Value>>(&envelope)
+            .await?;
     }
+
+    Ok(())
 }
 
 async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
