@@ -26,12 +26,9 @@ use governor::{
 use hulyrs::{
     Error,
     services::{
-        account::{AccountClient, SelectWorkspaceParams, WorkspaceKind},
+        account::{SelectWorkspaceParams, WorkspaceKind},
         jwt::ClaimsBuilder,
-        transactor::{
-            TransactorClient,
-            event::{Envelope, EventClient},
-        },
+        transactor::{TransactorClient, event::EventClient},
         types::WorkspaceUuid,
     },
 };
@@ -79,61 +76,25 @@ impl TransactorCache {
                     .build()
                     .unwrap();
 
-                let account = AccountClient::new(&claims)?;
+                let account = config::hulyrs::SERVICES.new_account_client(&claims)?;
 
                 let workspace_info = account
                     .select_workspace(&SelectWorkspaceParams {
                         workspace_url: String::default(),
                         kind: WorkspaceKind::ByRegion,
-                        external_regions: hulyrs::CONFIG.external_regions.clone(),
+                        external_regions: config::hulyrs::CONFIG.external_regions.clone(),
                     })
                     .await?;
 
                 trace!(%workspace, transactor = %workspace_info.endpoint, "Get transactor for workspace");
 
-                TransactorClient::new(workspace_info.endpoint, &claims).map(Arc::new)
+                config::hulyrs::SERVICES.new_transactor_client(workspace_info.endpoint, &claims).map(Arc::new)
             })
             .await
             .map_err(|e| {
                 error!(%workspace, error=%e, "Failed to get transactor");
                 Error::Other("NoTransactor")
             })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use tracing::debug;
-
-    use hulyrs::services::{
-        account::{AccountClient, SelectWorkspaceParams, WorkspaceKind},
-        jwt::ClaimsBuilder,
-    };
-
-    use crate::config::CONFIG;
-
-    #[tokio::test]
-    async fn test_region() {
-        super::initialize_tracing();
-
-        let claims = ClaimsBuilder::default()
-            .system_account()
-            .workspace(uuid::uuid!("80dc97fb-1c3e-4e74-9490-d430f30da740"))
-            .service(&CONFIG.service_id)
-            .build()
-            .unwrap();
-
-        let account = AccountClient::new(&claims).unwrap();
-
-        let select = SelectWorkspaceParams {
-            workspace_url: String::default(),
-            kind: WorkspaceKind::ByRegion,
-            external_regions: Vec::default(),
-        };
-
-        let info = account.select_workspace(&select).await.unwrap();
-
-        debug!(?info, "workspace info");
     }
 }
 
@@ -202,7 +163,7 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
     let context = consumer.context();
 
     let envelope = if let Some(payload) = message.payload() {
-        match json::from_slice::<Envelope<json::Value>>(payload) {
+        match json::from_slice::<json::Value>(payload) {
             Ok(parsed) => parsed,
             Err(error) => {
                 let payload = base64::prelude::BASE64_STANDARD.encode(payload);
@@ -302,7 +263,7 @@ pub fn initialize_tracing() {
 
     let filter = Targets::default()
         .with_default(Level::WARN)
-        .with_target(env!("CARGO_PKG_NAME"), hulyrs::CONFIG.log)
+        .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
         .with_target("librdkafka", Level::DEBUG);
 
     let format = tracing_subscriber::fmt::layer().compact();
@@ -327,7 +288,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut config = ClientConfig::new();
         config.set(
             "bootstrap.servers",
-            hulyrs::CONFIG.kafka_bootstrap_servers(),
+            config::hulyrs::CONFIG.kafka_bootstrap_servers(),
         );
 
         let admin = AdminClient::from_config(&config)?;
@@ -363,7 +324,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .set("group.id", &CONFIG.group_id)
         .set(
             "bootstrap.servers",
-            hulyrs::CONFIG.kafka_bootstrap_servers(),
+            config::hulyrs::CONFIG.kafka_bootstrap_servers(),
         )
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "10000")
@@ -371,7 +332,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .set("auto.offset.reset", "smallest")
         .set("enable.auto.commit", "false");
 
-    if let Some(debug) = hulyrs::CONFIG.kafka_rdkafka_debug.as_ref() {
+    if let Some(debug) = config::hulyrs::CONFIG.kafka_rdkafka_debug.as_ref() {
         config.set("debug", debug);
     }
 

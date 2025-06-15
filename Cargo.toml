@@ -1,6 +1,6 @@
 [package]
 name = "hulygun"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 
 [dependencies]
@@ -10,7 +10,9 @@ rdkafka = { version = "0.37.0", features = [
     "tracing",
 ] }
 tokio = { version = "1.44.2", features = ["full"] }
-hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", branch = "master" }
+hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", branch = "master", features = [
+    "kafka",
+] }
 config = "0.15.11"
 serde = { version = "1.0.219", features = ["derive"] }
 anyhow = "1.0.98"
