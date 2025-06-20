@@ -15,6 +15,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::{Result, bail};
 use base64::Engine;
 use hulyrs::{
     Error,
@@ -36,7 +37,7 @@ use rdkafka::{
     types::RDKafkaErrorCode,
 };
 use serde_json as json;
-use tracing::{error, info, trace, warn};
+use tracing::*;
 use uuid::Uuid;
 
 mod config;
@@ -78,9 +79,11 @@ impl TransactorCache {
                     })
                     .await?;
 
-                trace!(%workspace, transactor = %workspace_info.endpoint, "Get transactor for workspace");
+                trace!(transactor = %workspace_info.endpoint, "Get transactor for workspace");
 
-                config::hulyrs::SERVICES.new_transactor_client(workspace_info.endpoint, &claims).map(Arc::new)
+                config::hulyrs::SERVICES
+                    .new_transactor_client(workspace_info.endpoint, &claims)
+                    .map(Arc::new)
             })
             .await
             .map_err(|e| {
@@ -126,7 +129,14 @@ impl<T: rdkafka::Message> MessageExt for T {
     }
 }
 
-async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(), Error> {
+#[instrument(level = "trace", skip(consumer, message), fields(topic = %message.topic(), partition = %message.partition(), offset = %message.offset(), workpace = %message.header("WorkspaceUuid").unwrap_or_default()))]
+async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
+    if let Err(error) = process_event0(consumer, message).await {
+        error!(%error, "Processing error, message discarded");
+    }
+}
+
+async fn process_event0(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<()> {
     let context = consumer.context();
 
     let envelope = if let Some(payload) = message.payload() {
@@ -134,19 +144,19 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
             Ok(parsed) => parsed,
             Err(error) => {
                 let payload = base64::prelude::BASE64_STANDARD.encode(payload);
-                warn!(%error, payload, "Invalid payload");
-                return Err(Error::Other("InvalidPayload"));
+                error!(%error, payload, "Invalid payload");
+                bail!("InvalidPayload");
             }
         }
     } else {
-        return Err(Error::Other("NoPayload"));
+        bail!("NoPayload");
     };
 
     let workspace =
         if let Some(Ok(workspace)) = message.header("WorkspaceUuid").map(|s| Uuid::parse_str(&s)) {
             workspace
         } else {
-            return Err(Error::Other("InvalidWorkspace"));
+            bail!("InvalidWorkspace");
         };
 
     let transactor = context.transactors.get_transactor(workspace).await?;
@@ -155,6 +165,8 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
         transactor
             .request_raw::<_, Option<json::Value>>(&envelope)
             .await?;
+
+        trace!("Event processed");
     }
 
     Ok(())
@@ -180,11 +192,7 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
         let partition = message.partition();
         let offset = message.offset();
 
-        if let Err(e) = process(&consumer, &message).await {
-            error!(%topic, partition, offset, error=%e, "Processing error, message discarded");
-        } else {
-            trace!(%topic, partition, offset, "Message processed");
-        }
+        process_event(&consumer, &message).await;
 
         if !CONFIG.dry_run {
             if let Err(e) = consumer.commit_message(&message, CommitMode::Async) {
