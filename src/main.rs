@@ -15,14 +15,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use backoff::{SystemClock, backoff::Backoff, exponential::ExponentialBackoffBuilder};
 use base64::Engine;
-use governor::{
-    Quota, RateLimiter,
-    clock::{Clock, MonotonicClock},
-    middleware::NoOpMiddleware,
-    state::{InMemoryState, direct::NotKeyed},
-};
 use hulyrs::{
     Error,
     services::{
@@ -43,7 +36,6 @@ use rdkafka::{
     types::RDKafkaErrorCode,
 };
 use serde_json as json;
-use tokio::time;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
@@ -98,39 +90,14 @@ impl TransactorCache {
     }
 }
 
-pub type Limiter<MW = NoOpMiddleware<<MonotonicClock as Clock>::Instant>> =
-    RateLimiter<NotKeyed, InMemoryState, MonotonicClock, MW>;
-
 struct Context {
     transactors: TransactorCache,
-    limiter: Limiter,
 }
 
 impl Context {
     pub fn new() -> Self {
-        let quota = Quota::per_second(CONFIG.rate_limit).allow_burst(1.try_into().unwrap());
-
-        info!(rps = CONFIG.rate_limit, "Rate limiter initialized");
-
-        let limiter = RateLimiter::direct_with_clock(quota, MonotonicClock);
-
         Self {
             transactors: TransactorCache::new(),
-            limiter,
-        }
-    }
-}
-
-trait ErrorExt {
-    fn is_transient(&self) -> bool;
-}
-
-impl ErrorExt for Error {
-    fn is_transient(&self) -> bool {
-        match self {
-            Error::Other("NoTransactor") => true,
-            Error::HttpError(http::StatusCode::TOO_MANY_REQUESTS, _) => true,
-            _ => false,
         }
     }
 }
@@ -184,11 +151,6 @@ async fn process(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<(
 
     let transactor = context.transactors.get_transactor(workspace).await?;
 
-    if let Err(delay) = context.limiter.check() {
-        trace!(?delay, "Rate limit exceeded, waiting");
-        time::sleep_until(delay.earliest_possible().into()).await;
-    }
-
     if !CONFIG.dry_run {
         transactor
             .request_raw::<_, Option<json::Value>>(&envelope)
@@ -204,12 +166,6 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
 
     consumer.subscribe(&topics)?;
 
-    let mut backoff = ExponentialBackoffBuilder::<SystemClock>::default()
-        .with_initial_interval(Duration::from_secs(1))
-        .with_max_interval(Duration::from_secs(30))
-        .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .build();
-
     loop {
         let message = consumer.recv().await;
 
@@ -224,29 +180,10 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
         let partition = message.partition();
         let offset = message.offset();
 
-        trace!(%topic, partition, offset, "Process message");
-
-        backoff.reset();
-
-        'retry: loop {
-            if let Err(e) = process(&consumer, &message).await {
-                if e.is_transient() {
-                    if let Some(delay) = backoff.next_backoff() {
-                        warn!(%topic, partition, offset, ?delay, error=%e, "Transient error");
-
-                        time::sleep(delay).await;
-                        continue 'retry;
-                    } else {
-                        error!(%topic, partition, offset, error=%e, "Max elapsed time reached, giving up");
-                    }
-                } else {
-                    error!(%topic, partition, offset, error=%e, "Persistent error, discrading message");
-                }
-            } else {
-                trace!(%topic, partition, offset, "Message processed");
-            }
-
-            break;
+        if let Err(e) = process(&consumer, &message).await {
+            error!(%topic, partition, offset, error=%e, "Processing error, message discarded");
+        } else {
+            trace!(%topic, partition, offset, "Message processed");
         }
 
         if !CONFIG.dry_run {

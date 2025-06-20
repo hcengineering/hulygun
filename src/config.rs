@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-use std::{num::NonZero, path::Path, sync::LazyLock};
+use std::{path::Path, sync::LazyLock};
 
 use config::FileFormat;
 use serde::Deserialize;
@@ -24,7 +24,6 @@ pub struct Config {
     pub topics: Vec<String>,
     pub service_id: String,
     pub dry_run: bool,
-    pub rate_limit: NonZero<u32>,
 }
 
 impl Config {
@@ -39,7 +38,6 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
         topics = ["hulygun"]
         service_id = "hulygun"
         dry_run = false
-        rate_limit = 10 # messages per second
     "#;
 
     let mut builder =
