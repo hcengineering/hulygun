@@ -22,7 +22,7 @@ use hulyrs::{
     services::{
         account::{SelectWorkspaceParams, WorkspaceKind},
         jwt::ClaimsBuilder,
-        transactor::{TransactorClient, event::EventClient},
+        transactor::{TransactorClient, comm::EventClient},
         types::WorkspaceUuid,
     },
 };
@@ -159,14 +159,24 @@ async fn process_event0(consumer: &Consumer, message: &BorrowedMessage<'_>) -> R
             bail!("InvalidWorkspace");
         };
 
+    let mode = message.header("Mode").unwrap_or_default();
+
     let transactor = context.transactors.get_transactor(workspace).await?;
 
     if !CONFIG.dry_run {
-        transactor
-            .request_raw::<_, Option<json::Value>>(&envelope)
-            .await?;
+        trace!(mode, %envelope, "Message");
 
-        trace!("Event processed");
+        if envelope["space"] == json::Value::String("core:space:Tx".to_string()) {
+            transactor
+                .tx_raw::<_, Option<json::Value>>(&envelope)
+                .await?;
+            trace!("Transaction processed");
+        } else {
+            transactor
+                .request_raw::<_, Option<json::Value>>(&envelope)
+                .await?;
+            trace!("Communication event processed");
+        }
     }
 
     Ok(())
