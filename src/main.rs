@@ -37,10 +37,12 @@ use rdkafka::{
     types::RDKafkaErrorCode,
 };
 use serde_json as json;
-use tracing::*;
+use tracing::{Span, *};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 mod config;
+mod otel;
 use config::CONFIG;
 
 struct TransactorCache {
@@ -129,10 +131,58 @@ impl<T: rdkafka::Message> MessageExt for T {
     }
 }
 
-#[instrument(level = "trace", skip(consumer, message), fields(topic = %message.topic(), partition = %message.partition(), offset = %message.offset(), workpace = %message.header("WorkspaceUuid").unwrap_or_default()))]
+use opentelemetry::{
+    KeyValue, global,
+    metrics::Counter,
+    trace::{Status, TraceContextExt},
+};
+use std::sync::LazyLock;
+
+fn workspace_id(message: &BorrowedMessage<'_>) -> Option<Uuid> {
+    message
+        .header("WorkspaceUuid")
+        .or_else(|| message.header("workspace"))
+        .map(|s| Uuid::parse_str(&s))
+        .transpose()
+        .ok()
+        .flatten()
+}
+
+#[instrument(level = "trace", skip_all)]
 async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
+    let context = Span::current().context();
+    let span = context.span();
+
+    static EVENTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+        global::meter("hulygun")
+            .u64_counter("hulygun_event")
+            .build()
+    });
+
+    static ERRORS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+        global::meter("hulygun")
+            .u64_counter("hulygun_error")
+            .build()
+    });
+
+    let workspace = workspace_id(message)
+        .map(|workspace| workspace.to_string())
+        .unwrap_or_else(|| "default".to_string());
+
+    span.set_attribute(KeyValue::new("workspace", workspace.clone()));
+    span.set_attribute(KeyValue::new("topic", message.topic().to_owned()));
+    span.set_attribute(KeyValue::new("partition", message.partition().to_string()));
+    span.set_attribute(KeyValue::new("offset", message.offset()));
+
+    EVENTS.add(1, &[KeyValue::new("workspace", workspace.clone())]);
+
     if let Err(error) = process_event0(consumer, message).await {
-        error!(%error, "Processing error, message discarded");
+        ERRORS.add(1, &[KeyValue::new("workspace", workspace)]);
+
+        span.set_status(Status::Error {
+            description: error.to_string().into(),
+        });
+        span.record_error(&*error);
     }
 }
 
@@ -152,12 +202,17 @@ async fn process_event0(consumer: &Consumer, message: &BorrowedMessage<'_>) -> R
         bail!("NoPayload");
     };
 
-    let workspace =
-        if let Some(Ok(workspace)) = message.header("WorkspaceUuid").map(|s| Uuid::parse_str(&s)) {
-            workspace
-        } else {
-            bail!("InvalidWorkspace");
-        };
+    let workspace_id = workspace_id(message);
+
+    let workspace = if let Some(workspace) = workspace_id {
+        workspace
+    } else {
+        bail!("InvalidWorkspace");
+    };
+
+    let _service = message
+        .header("service")
+        .unwrap_or_else(|| "unknown".to_string());
 
     let mode = message.header("Mode").unwrap_or_default();
 
@@ -212,26 +267,38 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
     }
 }
 
-pub fn initialize_tracing() {
+pub async fn initialize_tracing() {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
     use tracing::Level;
+    use tracing_opentelemetry::OpenTelemetryLayer;
     use tracing_subscriber::{filter::targets::Targets, prelude::*};
 
-    let filter = Targets::default()
-        .with_default(Level::WARN)
-        .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
-        .with_target("librdkafka", Level::DEBUG);
-
-    let format = tracing_subscriber::fmt::layer().compact();
-
     tracing_subscriber::registry()
-        .with(filter)
-        .with(format)
+        .with({
+            let format = tracing_subscriber::fmt::layer().compact();
+            let filter = Targets::default()
+                .with_default(Level::WARN)
+                .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
+                .with_target("librdkafka", Level::DEBUG);
+            format.with_filter(filter)
+        })
+        .with(
+            otel::tracer_provider()
+                .map(|provider| OpenTelemetryLayer::new(provider.tracer("hulygun"))),
+        )
+        .with(
+            otel::logger_provider()
+                .as_ref()
+                .map(OpenTelemetryTracingBridge::new),
+        )
         .init();
 }
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    initialize_tracing();
+    otel::init();
+    initialize_tracing().await;
 
     info!(
         "{}/{} started",
@@ -239,39 +306,37 @@ async fn main() -> Result<(), anyhow::Error> {
         env!("CARGO_PKG_VERSION")
     );
 
-    {
-        let mut config = ClientConfig::new();
-        config.set(
-            "bootstrap.servers",
-            config::hulyrs::CONFIG.kafka_bootstrap_servers(),
-        );
+    let mut config = ClientConfig::new();
+    config.set(
+        "bootstrap.servers",
+        config::hulyrs::CONFIG.kafka_bootstrap_servers(),
+    );
 
-        let admin = AdminClient::from_config(&config)?;
+    let admin = AdminClient::from_config(&config)?;
 
-        let topics = CONFIG
-            .topics()
-            .iter()
-            .map(|topic| NewTopic {
-                name: topic,
-                num_partitions: 4,
-                replication: TopicReplication::Fixed(1),
-                config: vec![],
-            })
-            .collect::<Vec<_>>();
+    let topics = CONFIG
+        .topics()
+        .iter()
+        .map(|topic| NewTopic {
+            name: topic,
+            num_partitions: 4,
+            replication: TopicReplication::Fixed(1),
+            config: vec![],
+        })
+        .collect::<Vec<_>>();
 
-        admin
-            .create_topics(&topics, &AdminOptions::default())
-            .await?
-            .iter()
-            .for_each(|result| match result {
-                Ok(topic) => info!(topic, "Topic created"),
-                Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
-                    trace!(topic, "Topic already exists");
-                }
+    admin
+        .create_topics(&topics, &AdminOptions::default())
+        .await?
+        .iter()
+        .for_each(|result| match result {
+            Ok(topic) => info!(topic, "Topic created"),
+            Err((topic, RDKafkaErrorCode::TopicAlreadyExists)) => {
+                trace!(topic, "Topic already exists");
+            }
 
-                Err((topic, error)) => error!(topic, ?error, "Failed to create topic"),
-            });
-    }
+            Err((topic, error)) => error!(topic, ?error, "Failed to create topic"),
+        });
 
     let mut config = ClientConfig::new();
 

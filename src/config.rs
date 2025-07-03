@@ -19,11 +19,20 @@ use config::FileFormat;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum OtelMode {
+    On,
+    Stdout,
+    Off,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Config {
     pub group_id: String,
     pub topics: Vec<String>,
     pub service_id: String,
     pub dry_run: bool,
+    pub otel: OtelMode,
 }
 
 impl Config {
@@ -38,6 +47,7 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
         topics = ["hulygun"]
         service_id = "hulygun"
         dry_run = false
+        otel = "off"
     "#;
 
     let mut builder =
