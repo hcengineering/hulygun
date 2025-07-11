@@ -167,17 +167,25 @@ async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
 
     let workspace = workspace_id(message)
         .map(|workspace| workspace.to_string())
-        .unwrap_or_else(|| "default".to_string());
+        .unwrap_or_default();
 
+    let service = message.header("service").unwrap_or_default();
+
+    span.set_attribute(KeyValue::new("service", service.clone()));
     span.set_attribute(KeyValue::new("workspace", workspace.clone()));
     span.set_attribute(KeyValue::new("topic", message.topic().to_owned()));
     span.set_attribute(KeyValue::new("partition", message.partition().to_string()));
     span.set_attribute(KeyValue::new("offset", message.offset()));
 
-    EVENTS.add(1, &[KeyValue::new("workspace", workspace.clone())]);
+    let mattrs = vec![
+        KeyValue::new("workspace", workspace),
+        KeyValue::new("service", service),
+    ];
+
+    EVENTS.add(1, &mattrs);
 
     if let Err(error) = process_event0(consumer, message).await {
-        ERRORS.add(1, &[KeyValue::new("workspace", workspace)]);
+        ERRORS.add(1, &mattrs);
 
         span.set_status(Status::Error {
             description: error.to_string().into(),
