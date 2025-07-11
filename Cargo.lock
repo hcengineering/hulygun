@@ -769,7 +769,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hulygun"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -795,7 +795,7 @@ dependencies = [
 [[package]]
 name = "hulyrs"
 version = "0.1.0"
-source = "git+https://github.com/hcengineering/hulyrs.git?branch=master#dd0d2a313df51a55421dfdfd4c6e67a27774da2a"
+source = "git+https://github.com/hcengineering/hulyrs.git?branch=master#7198c9b5888f906b602e21e2a8c67d7b2d9cd9db"
 dependencies = [
  "bytes",
  "chrono",
