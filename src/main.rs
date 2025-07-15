@@ -39,6 +39,7 @@ use rdkafka::{
 use serde_json as json;
 use tracing::{Span, *};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing_subscriber::fmt::Layer;
 use uuid::Uuid;
 
 mod config;
@@ -291,15 +292,28 @@ pub async fn initialize_tracing() {
                 .with_target("librdkafka", Level::DEBUG);
             format.with_filter(filter)
         })
-        .with(
-            otel::tracer_provider()
-                .map(|provider| OpenTelemetryLayer::new(provider.tracer("hulygun"))),
-        )
-        .with(
-            otel::logger_provider()
+        .with(otel::tracer_provider().map(|provider| {
+            let filter = Targets::default()
+                .with_default(Level::WARN)
+                .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
+                .with_target("librdkafka", Level::DEBUG);
+
+            OpenTelemetryLayer::new(provider.tracer("hulygun")).with_filter(filter)
+        }))
+        .with({
+            let logger = otel::logger_provider()
                 .as_ref()
-                .map(OpenTelemetryTracingBridge::new),
-        )
+                .map(OpenTelemetryTracingBridge::new);
+
+            let filter = Targets::default()
+                .with_default(Level::WARN)
+                .with_target(env!("CARGO_PKG_NAME"), Level::DEBUG)
+                .with_target("librdkafka", Level::DEBUG);
+
+            let logger = logger.with_filter(filter);
+
+            logger
+        })
         .init();
 }
 
