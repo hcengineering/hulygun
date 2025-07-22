@@ -32,4 +32,7 @@ ARG TARGET
 COPY --from=builder /tmp/build/target/*/release/hulygun /usr/local/bin/hulygun
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
+STOPSIGNAL 9
+RUN useradd -ms /bin/bash hulygun
+USER hulygun
 ENTRYPOINT ["/usr/local/bin/hulygun"]
