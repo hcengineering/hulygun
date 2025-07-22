@@ -21,9 +21,9 @@ use hulyrs::{
     Error,
     services::{
         account::{SelectWorkspaceParams, WorkspaceKind},
+        core::WorkspaceUuid,
         jwt::ClaimsBuilder,
-        transactor::{TransactorClient, comm::EventClient},
-        types::WorkspaceUuid,
+        transactor::{TransactorClient, backend::http::HttpBackend, comm::EventClient},
     },
 };
 use moka::future::{Cache, CacheBuilder};
@@ -46,7 +46,7 @@ mod otel;
 use config::CONFIG;
 
 struct TransactorCache {
-    cache: Cache<WorkspaceUuid, Arc<TransactorClient>>,
+    cache: Cache<WorkspaceUuid, Arc<TransactorClient<HttpBackend>>>,
 }
 
 impl TransactorCache {
@@ -61,7 +61,7 @@ impl TransactorCache {
     pub async fn get_transactor(
         &self,
         workspace: WorkspaceUuid,
-    ) -> std::result::Result<Arc<TransactorClient>, Error> {
+    ) -> std::result::Result<Arc<TransactorClient<HttpBackend>>, Error> {
         self.cache
             .try_get_with(workspace, async {
                 let claims = ClaimsBuilder::default()
