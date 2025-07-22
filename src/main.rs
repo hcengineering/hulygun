@@ -39,7 +39,6 @@ use rdkafka::{
 use serde_json as json;
 use tracing::{Span, *};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use tracing_subscriber::fmt::Layer;
 use uuid::Uuid;
 
 mod config;
@@ -132,11 +131,7 @@ impl<T: rdkafka::Message> MessageExt for T {
     }
 }
 
-use opentelemetry::{
-    KeyValue, global,
-    metrics::Counter,
-    trace::{Status, TraceContextExt},
-};
+use opentelemetry::{KeyValue, global, metrics::Counter, trace::Status};
 use std::sync::LazyLock;
 
 fn workspace_id(message: &BorrowedMessage<'_>) -> Option<Uuid> {
@@ -151,8 +146,7 @@ fn workspace_id(message: &BorrowedMessage<'_>) -> Option<Uuid> {
 
 #[instrument(level = "trace", skip_all)]
 async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
-    let context = Span::current().context();
-    let span = context.span();
+    let span = Span::current();
 
     static EVENTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
         global::meter("hulygun")
@@ -170,17 +164,17 @@ async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
         .map(|workspace| workspace.to_string())
         .unwrap_or_default();
 
-    let service = message.header("service").unwrap_or_default();
+    let source = message.header("source").unwrap_or_default();
 
-    span.set_attribute(KeyValue::new("service", service.clone()));
-    span.set_attribute(KeyValue::new("workspace", workspace.clone()));
-    span.set_attribute(KeyValue::new("topic", message.topic().to_owned()));
-    span.set_attribute(KeyValue::new("partition", message.partition().to_string()));
-    span.set_attribute(KeyValue::new("offset", message.offset()));
+    span.set_attribute("source", source.clone());
+    span.set_attribute("workspace", workspace.clone());
+    span.set_attribute("topic", message.topic().to_owned());
+    span.set_attribute("partition", message.partition().to_string());
+    span.set_attribute("offset", message.offset());
 
     let mattrs = vec![
         KeyValue::new("workspace", workspace),
-        KeyValue::new("service", service),
+        KeyValue::new("source", source),
     ];
 
     EVENTS.add(1, &mattrs);
@@ -191,7 +185,6 @@ async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
         span.set_status(Status::Error {
             description: error.to_string().into(),
         });
-        span.record_error(&*error);
     }
 }
 
