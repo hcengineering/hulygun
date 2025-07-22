@@ -29,5 +29,5 @@ jobs:
           push: true
           tags: '${{ vars.DOCKER_USER }}/service_hulygun:${{ env.VERSION }},${{ vars.DOCKER_USER }}/service_hulygun:latest'
           platforms: linux/amd64,linux/arm64
-          attests: type=provenance,mode=min
+          attests: type=provenance,mode=max
           sbom: true
