@@ -1,6 +1,6 @@
 [package]
 name = "hulygun"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 
 [dependencies]
@@ -13,6 +13,7 @@ rdkafka = { version = "0.37.0", features = [
 tokio = { version = "1.44.2", features = ["full"] }
 hulyrs = { git = "https://github.com/hcengineering/hulyrs.git", branch = "master", features = [
     "kafka",
+    "otel",
 ] }
 config = "0.15.11"
 serde = { version = "1.0.219", features = ["derive"] }

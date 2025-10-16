@@ -41,8 +41,9 @@ use tracing::{Span, *};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
+use hulyrs::services::otel;
+
 mod config;
-mod otel;
 use config::CONFIG;
 
 struct TransactorCache {
@@ -269,51 +270,60 @@ async fn worker(consumer: Consumer) -> Result<(), anyhow::Error> {
     }
 }
 
-pub async fn initialize_tracing() {
+fn initialize_tracing() {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
     use tracing::Level;
     use tracing_opentelemetry::OpenTelemetryLayer;
     use tracing_subscriber::{filter::targets::Targets, prelude::*};
 
-    tracing_subscriber::registry()
-        .with({
-            let format = tracing_subscriber::fmt::layer().compact();
-            let filter = Targets::default()
-                .with_default(Level::WARN)
-                .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
-                .with_target("librdkafka", Level::DEBUG);
-            format.with_filter(filter)
-        })
-        .with(otel::tracer_provider().map(|provider| {
-            let filter = Targets::default()
-                .with_default(Level::WARN)
-                .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log)
-                .with_target("librdkafka", Level::DEBUG);
+    let otel_config = otel::OtelConfig {
+        mode: config::hulyrs::CONFIG.otel_mode.clone(),
+        service_name: env!("CARGO_PKG_NAME").to_string(),
+        service_version: env!("CARGO_PKG_VERSION").to_string(),
+    };
 
-            OpenTelemetryLayer::new(provider.tracer("hulygun")).with_filter(filter)
-        }))
-        .with({
-            let logger = otel::logger_provider()
-                .as_ref()
-                .map(OpenTelemetryTracingBridge::new);
+    otel::init(&otel_config);
 
-            let filter = Targets::default()
-                .with_default(Level::WARN)
-                .with_target(env!("CARGO_PKG_NAME"), Level::DEBUG)
-                .with_target("librdkafka", Level::DEBUG);
+    let filter = Targets::default()
+        .with_target(env!("CARGO_BIN_NAME"), config::hulyrs::CONFIG.log)
+        .with_target("actix", Level::WARN);
+    let format = tracing_subscriber::fmt::layer().compact();
 
-            let logger = logger.with_filter(filter);
+    match &config::hulyrs::CONFIG.otel_mode {
+        otel::OtelMode::Off => {
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(format)
+                .init();
+        }
 
-            logger
-        })
-        .init();
+        _ => {
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(format)
+                .with(otel::tracer_provider(&otel_config).map(|provider| {
+                    let filter = Targets::default()
+                        .with_default(Level::DEBUG)
+                        .with_target(env!("CARGO_PKG_NAME"), config::hulyrs::CONFIG.log);
+
+                    OpenTelemetryLayer::new(provider.tracer("hulygun")).with_filter(filter)
+                }))
+                .with(otel::logger_provider(&otel_config).as_ref().map(|logger| {
+                    let filter = Targets::default()
+                        .with_default(Level::DEBUG)
+                        .with_target(env!("CARGO_PKG_NAME"), Level::DEBUG);
+
+                    OpenTelemetryTracingBridge::new(logger).with_filter(filter)
+                }))
+                .init();
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    otel::init();
-    initialize_tracing().await;
+    initialize_tracing();
 
     info!(
         "{}/{} started",
