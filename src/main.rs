@@ -192,7 +192,7 @@ async fn process_event(consumer: &Consumer, message: &BorrowedMessage<'_>) {
 async fn process_event0(consumer: &Consumer, message: &BorrowedMessage<'_>) -> Result<()> {
     let context = consumer.context();
 
-    let envelope = if let Some(payload) = message.payload() {
+    let payload = if let Some(payload) = message.payload() {
         match json::from_slice::<json::Value>(payload) {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -217,21 +217,21 @@ async fn process_event0(consumer: &Consumer, message: &BorrowedMessage<'_>) -> R
         .header("service")
         .unwrap_or_else(|| "unknown".to_string());
 
-    let mode = message.header("Mode").unwrap_or_default();
-
     let transactor = context.transactors.get_transactor(workspace).await?;
 
     if !CONFIG.dry_run {
-        trace!(mode, %envelope, "Message");
+        let is_transaction = payload["space"] == json::Value::String("core:space:Tx".to_string());
 
-        if envelope["space"] == json::Value::String("core:space:Tx".to_string()) {
+        if is_transaction {
             transactor
-                .tx_raw::<_, Option<json::Value>>(&envelope)
+                .tx_raw::<_, Option<json::Value>>(&payload)
                 .await?;
             trace!("Transaction processed");
         } else {
+            warn!(%payload, "Using deprecated communication event processing");
+
             transactor
-                .request_raw::<_, Option<json::Value>>(&envelope)
+                .request_raw::<_, Option<json::Value>>(&payload)
                 .await?;
             trace!("Communication event processed");
         }
