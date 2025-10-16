@@ -785,7 +785,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hulygun"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "hulyrs"
 version = "0.1.0"
-source = "git+https://github.com/hcengineering/hulyrs.git?branch=master#51dfed560eab35a4c7d5f02ba2a1b8f87b43c209"
+source = "git+https://github.com/hcengineering/hulyrs.git?branch=master#15fedca5f0522dbf6015ed87c1dce7d503e7fb46"
 dependencies = [
  "bytes",
  "chrono",
@@ -836,6 +836,7 @@ dependencies = [
  "serde_with",
  "strum",
  "thiserror 2.0.12",
+ "tokio",
  "tokio-stream",
  "tokio_with_wasm",
  "tracing",
